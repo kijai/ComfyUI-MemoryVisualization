@@ -25,6 +25,7 @@ const C = {
     torch:      "#2ecc71",
     pinned:     "#4a9eff",
     unloaded:   "#3a3a3a",
+    torchCache: "#1a7a3a",
     python:     "#9b59b6",
     other:      "#505050",
     text:       "#b0b0b0",
@@ -401,7 +402,9 @@ function renderData(body, data) {
     if (used > peakVramUsed) peakVramUsed = used;
     const aimdoPct = (data.aimdo_usage / data.total_vram * 100).toFixed(0);
     const torchPct = (data.torch_active / data.total_vram * 100).toFixed(0);
-    const otherUsed = Math.max(0, used - data.aimdo_usage - data.torch_active);
+    const torchCache = Math.max(0, data.torch_reserved - data.torch_active);
+    const torchCachePct = (torchCache / data.total_vram * 100).toFixed(0);
+    const otherUsed = Math.max(0, used - data.aimdo_usage - data.torch_reserved);
     const otherPct = (otherUsed / data.total_vram * 100).toFixed(0);
 
     const ramUsed = data.used_ram || 0;
@@ -419,6 +422,7 @@ function renderData(body, data) {
     mb.querySelector(".mini-vram-bar").innerHTML =
         `<div style="background:${C.vram};height:100%;width:${aimdoPct}%;"></div>` +
         `<div style="background:${C.torch};height:100%;width:${torchPct}%;"></div>` +
+        `<div style="background:${C.torchCache};height:100%;width:${torchCachePct}%;"></div>` +
         `<div style="background:${C.other};height:100%;width:${otherPct}%;"></div>`;
     mb.querySelector(".mini-ram-usage").textContent = `${formatBytes(ramUsed)} / ${formatBytes(ramTotal)}`;
     mb.querySelector(".mini-ram-bar").innerHTML =
@@ -450,11 +454,13 @@ function renderData(body, data) {
         <div style="background:${C.barBg};border-radius:3px;height:8px;overflow:hidden;display:flex;">
             <div style="background:${C.vram};height:100%;width:${aimdoPct}%;" title="aimdo: ${formatBytes(data.aimdo_usage)}"></div>
             <div style="background:${C.torch};height:100%;width:${torchPct}%;" title="torch: ${formatBytes(data.torch_active)}"></div>
+            <div style="background:${C.torchCache};height:100%;width:${torchCachePct}%;" title="cache: ${formatBytes(torchCache)}"></div>
             <div style="background:${C.other};height:100%;width:${otherPct}%;" title="other: ${formatBytes(otherUsed)}"></div>
         </div>
         <div style="display:flex;gap:8px;font-size:10px;color:${C.textDim};margin-top:2px;">
             ${data.aimdo_active ? `<span><span style="color:${C.vram};">&#9632;</span> aimdo ${formatBytes(data.aimdo_usage)}</span>` : ""}
             <span><span style="color:${C.torch};">&#9632;</span> torch ${formatBytes(data.torch_active)}</span>
+            <span><span style="color:${C.torchCache};">&#9632;</span> cache ${formatBytes(torchCache)}</span>
             <span><span style="color:${C.other};">&#9632;</span> other ${formatBytes(otherUsed)}</span>
         </div>
         <div style="display:flex;gap:10px;font-size:10px;color:${C.textDim};margin-top:2px;">
@@ -505,12 +511,16 @@ function renderData(body, data) {
                 <span><span style="color:${C.unloaded};">&#9632;</span> unloaded ${formatBytes(unloadedSize)}</span>
             </div>`;
         } else {
-            const loadPct = m.total_size > 0 ? (m.loaded_size / m.total_size * 100).toFixed(0) : 0;
-            modelsHtml += `<div style="background:${C.barBg};border-radius:3px;height:10px;overflow:hidden;">
-                <div style="background:${C.vram};height:100%;width:${loadPct}%;"></div>
+            const inRam = Math.max(0, m.total_size - m.loaded_size);
+            const vramPct = m.total_size > 0 ? (m.loaded_size / m.total_size * 100).toFixed(0) : 0;
+            const ramPct = m.total_size > 0 ? (inRam / m.total_size * 100).toFixed(0) : 0;
+            modelsHtml += `<div style="background:${C.barBg};border-radius:3px;height:10px;overflow:hidden;display:flex;">
+                <div style="background:${C.vram};height:100%;width:${vramPct}%;" title="VRAM: ${formatBytes(m.loaded_size)}"></div>
+                <div style="background:${C.pinned};height:100%;width:${ramPct}%;" title="RAM: ${formatBytes(inRam)}"></div>
             </div>
-            <div style="font-size:10px;color:${C.textDim};margin-top:2px;">
-                <span style="color:${C.vram};">&#9632;</span> VRAM ${formatBytes(m.loaded_size)}
+            <div style="display:flex;gap:8px;font-size:10px;color:${C.textDim};margin-top:2px;">
+                <span><span style="color:${C.vram};">&#9632;</span> VRAM ${formatBytes(m.loaded_size)}</span>
+                ${inRam > 0 ? `<span><span style="color:${C.pinned};">&#9632;</span> RAM ${formatBytes(inRam)}</span>` : ""}
             </div>`;
         }
 
