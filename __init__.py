@@ -16,8 +16,14 @@ try:
 except ImportError:
     comfy_aimdo = None
 
-_model_lock = asyncio.Lock()
+_model_lock = None  # lazy — #5: avoid wrong-event-loop attachment
 routes = server.PromptServer.instance.routes
+
+def _get_lock():
+    global _model_lock
+    if _model_lock is None:
+        _model_lock = asyncio.Lock()
+    return _model_lock
 
 @routes.get("/aimdo/vram")
 async def aimdo_vram_status(request):
@@ -90,7 +96,11 @@ async def aimdo_vram_status(request):
 
         models.append(entry)
 
-    aimdo_usage = comfy_aimdo.control.get_total_vram_usage() if aimdo_active else 0
+    try:
+        aimdo_usage = comfy_aimdo.control.get_total_vram_usage() if aimdo_active else 0
+    except Exception as e:
+        log.warning("aimdo-viz: get_total_vram_usage failed: %s", e)
+        aimdo_usage = 0
 
     # driver-level free/total (matches nvitop)
     free_cuda, total_vram = torch.cuda.mem_get_info(device)
@@ -115,7 +125,7 @@ async def aimdo_vram_status(request):
 async def aimdo_unload_all(request):
     if _is_executing():
         return web.json_response({"error": "cannot unload during execution"}, status=409)
-    async with _model_lock:
+    async with _get_lock():
         await asyncio.get_running_loop().run_in_executor(None, comfy.model_management.unload_all_models)
     return web.json_response({"status": "ok"})
 
@@ -126,21 +136,23 @@ def _is_executing():
 def _get_model_idx(data):
     idx = data.get("index")
     if not isinstance(idx, int) or isinstance(idx, bool):
-        return None, web.json_response({"error": "missing or invalid index"}, status=400)
+        return None, None, web.json_response({"error": "missing or invalid index"}, status=400)
     models = comfy.model_management.current_loaded_models
     if idx < 0 or idx >= len(models):
-        return None, web.json_response({"error": "index out of range"}, status=400)
-    return idx, None
+        return None, None, web.json_response({"error": "index out of range"}, status=400)
+    # store identity for re-check inside lock (#1)
+    model_id = id(models[idx])
+    return idx, model_id, None
 
 @routes.post("/aimdo/reset_watermark")
 async def aimdo_reset_watermark(request):
-    idx, err = _get_model_idx(await request.json())
+    idx, model_id, err = _get_model_idx(await request.json())
     if err:
         return err
-    async with _model_lock:
-        torch.cuda.empty_cache()
+    async with _get_lock():
+        await asyncio.get_running_loop().run_in_executor(None, torch.cuda.empty_cache)  # #3: don't block event loop
         models = comfy.model_management.current_loaded_models
-        if idx >= len(models):
+        if idx >= len(models) or id(models[idx]) != model_id:  # #1: verify same model
             return web.json_response({"error": "model no longer at index"}, status=409)
         patcher = models[idx].model
         if patcher is not None and hasattr(patcher, '_vbar_get'):
@@ -153,14 +165,20 @@ async def aimdo_reset_watermark(request):
 async def aimdo_unload_model(request):
     if _is_executing():
         return web.json_response({"error": "cannot unload during execution"}, status=409)
-    idx, err = _get_model_idx(await request.json())
+    idx, model_id, err = _get_model_idx(await request.json())
     if err:
         return err
-    async with _model_lock:
+    async with _get_lock():
         models = comfy.model_management.current_loaded_models
-        if idx >= len(models):
+        if idx >= len(models) or id(models[idx]) != model_id:  # #1: verify same model
             return web.json_response({"error": "model no longer at index"}, status=409)
-        models[idx].model_unload()
-        models.pop(idx)
+        lm = models[idx]
+        lm.model_unload()
+        # #2: re-derive index — list may have shifted since we verified identity
+        try:
+            current_idx = models.index(lm)
+            models.pop(current_idx)
+        except ValueError:
+            pass  # already removed by another path
         comfy.model_management.soft_empty_cache()
     return web.json_response({"status": "ok"})

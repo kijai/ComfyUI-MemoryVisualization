@@ -246,6 +246,7 @@ function createPanel() {
         unloadBtn.textContent = "...";
         try {
             await api.fetchApi("/aimdo/unload_all", { method: "POST" });
+            peakVramUsed = 0;  // #7: reset peak on unload all
         } finally {
             unloadBtn.textContent = "unload";
         }
@@ -340,10 +341,10 @@ function renderData(body, data) {
 
     const used = data.total_vram - data.free_vram;
     if (used > peakVramUsed) peakVramUsed = used;
-    const aimdoPct = (data.aimdo_usage / data.total_vram * 100).toFixed(0);
-    const torchPct = (data.torch_active / data.total_vram * 100).toFixed(0);
+    const aimdoPct = data.total_vram > 0 ? (data.aimdo_usage / data.total_vram * 100).toFixed(0) : 0;
+    const torchPct = data.total_vram > 0 ? (data.torch_active / data.total_vram * 100).toFixed(0) : 0;
     const otherUsed = Math.max(0, used - data.aimdo_usage - data.torch_active);
-    const otherPct = (otherUsed / data.total_vram * 100).toFixed(0);
+    const otherPct = data.total_vram > 0 ? (otherUsed / data.total_vram * 100).toFixed(0) : 0;
 
     r.contentDiv.innerHTML = `<div style="margin-bottom:4px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
@@ -361,7 +362,7 @@ function renderData(body, data) {
             <span><span style="color:${C.other};">&#9632;</span> other ${formatBytes(otherUsed)}</span>
         </div>
         <div style="display:flex;gap:10px;font-size:10px;color:${C.textDim};margin-top:2px;">
-            <span>peak: ${formatBytes(peakVramUsed)}</span>
+            <span>peak: ${formatBytes(peakVramUsed)} <span class="aimdo-reset-peak-btn" style="cursor:pointer;font-size:9px;padding:0px 2px;background:${C.btn};border-radius:2px;color:${C.btnText};" title="reset peak">rst</span></span>
             <span>cache: ${formatBytes(data.torch_reserved - data.torch_active)}</span>
             ${execState.running ? `<span style="color:${C.running};">&#9679; ${execState.node || "running"}${execState.progress ? " " + execState.progress : ""}</span>` : `<span>&#9679; idle</span>`}
         </div>
@@ -422,7 +423,7 @@ function renderData(body, data) {
                 const vb = m.vbars[vi];
                 if (!vb.residency || vb.residency.length === 0) continue;
 
-                const vkey = `${m.index}_${vi}`;
+                const vkey = `${m.name}_${vb.device}_${vi}`;  // #8: stable key — no index shift leak
                 diffResidency(vkey, vb.residency);
                 let residentCount = 0, pinnedCount = 0;
                 for (let i = 0; i < vb.residency.length; i++) {
@@ -437,7 +438,7 @@ function renderData(body, data) {
                 if (m.vbars.length > 1) {
                     modelsHtml += `<div style="font-size:10px;color:${C.textDim};margin-top:3px;">${escHtml(vb.device)}</div>`;
                 }
-                modelsHtml += `<div id="aimdo-pgrid-${vkey}" style="margin-top:2px;"></div>`;
+                modelsHtml += `<div data-pgrid="${escHtml(vkey)}" style="margin-top:2px;"></div>`;
                 modelsHtml += `<div style="color:${C.textDim};font-size:10px;margin-top:2px;">
                     <span style="color:${C.vram};">${vramPages} VRAM (${formatBytes(vramPages * PAGE)})</span> + <span style="color:${C.unloaded};">${ramPages} unloaded (${formatBytes(ramPages * PAGE)})</span>
                 </div>`;
@@ -462,7 +463,7 @@ function renderData(body, data) {
     for (const m of data.models) {
         if (!m.vbars) continue;
         for (let vi = 0; vi < m.vbars.length; vi++) {
-            activeKeys.add(`${m.index}_${vi}`);
+            activeKeys.add(`${m.name}_${m.vbars[vi].device}_${vi}`);
         }
     }
 
@@ -482,9 +483,9 @@ function renderData(body, data) {
             const vb = m.vbars[vi];
             if (!vb.residency || vb.residency.length === 0) continue;
 
-            const vkey = `${m.index}_${vi}`;
+            const vkey = `${m.name}_${vb.device}_${vi}`;
             const st = modelState[vkey];
-            const container = r.modelsDiv.querySelector(`#aimdo-pgrid-${vkey}`);
+            const container = r.modelsDiv.querySelector(`[data-pgrid="${vkey}"]`);  // #11: data-attr selector
             if (!container) continue;
 
             let canvas = r.pageCanvases[vkey];
@@ -494,7 +495,8 @@ function renderData(body, data) {
                 r.pageCanvases[vkey] = canvas;
                 r.pageCtxs[vkey] = canvas.getContext("2d");
             }
-            canvas.width = container.clientWidth || r.modelsDiv.clientWidth || 300;
+            const newW = container.clientWidth || r.modelsDiv.clientWidth || 300;
+            if (canvas.width !== newW) canvas.width = newW;
             container.appendChild(canvas);
             drawPageGrid(r.pageCtxs[vkey], canvas.width, vb.residency, st ? st.changeAge : new Uint8Array(vb.residency.length));
         }
@@ -504,6 +506,11 @@ function renderData(body, data) {
     if (!r.modelsDiv._delegated) {
         r.modelsDiv._delegated = true;
         r.modelsDiv.addEventListener("click", async (e) => {
+            const peakBtn = e.target.closest(".aimdo-reset-peak-btn");
+            if (peakBtn) {
+                peakVramUsed = 0;  // #7: reset peak
+                return;
+            }
             const wmBtn = e.target.closest(".aimdo-reset-wm-btn");
             if (wmBtn) {
                 const idx = parseInt(wmBtn.dataset.index);
@@ -562,8 +569,10 @@ app.registerExtension({
                 const data = await resp.json();
                 renderData(body, data);
             } catch (e) {
-                body.innerHTML = `<div style="color:#aa5555;">Error fetching data</div>`;
-                refs = null;
+                // #10: keep last good render, show transient error overlay
+                if (!refs) {
+                    body.innerHTML = `<div style="color:#aa5555;">Error fetching data</div>`;
+                }
             }
             setTimeout(poll, pollInterval);
         }
