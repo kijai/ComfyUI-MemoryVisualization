@@ -6,8 +6,10 @@ import asyncio
 import torch
 import server
 from aiohttp import web
+import psutil
 import comfy.model_management
 import comfy.memory_management
+
 
 log = logging.getLogger(__name__)
 
@@ -110,6 +112,10 @@ async def aimdo_vram_status(request):
     torch_active = stats.get('active_bytes.all.current', 0)
     torch_reserved = stats.get('reserved_bytes.all.current', 0)
 
+    ram = psutil.virtual_memory()
+    process_ram = psutil.Process().memory_info().rss
+    total_pinned = sum(m.get("pinned_ram", 0) for m in models)
+
     return web.json_response({
         "enabled": True,
         "aimdo_active": aimdo_active,
@@ -118,6 +124,10 @@ async def aimdo_vram_status(request):
         "aimdo_usage": aimdo_usage,
         "torch_active": torch_active,
         "torch_reserved": torch_reserved,
+        "total_ram": ram.total,
+        "used_ram": ram.used,
+        "process_ram": process_ram,
+        "pinned_ram": total_pinned,
         "models": models,
     })
 
