@@ -72,8 +72,14 @@ const history = {
 function pushHistory(data) {
     history.total_vram = data.total_vram;
     const i = history.head;
-    history.torch_active[i] = data.torch_active;
-    history.aimdo_usage[i] = data.aimdo_usage;
+    // store non-overlapping values matching the bar logic
+    if (data.aimdo_usage > 0) {
+        history.aimdo_usage[i] = data.aimdo_usage;
+        history.torch_active[i] = 0;
+    } else {
+        history.aimdo_usage[i] = 0;
+        history.torch_active[i] = data.torch_active;
+    }
     history.free_vram[i] = data.free_vram;
     history.head = (i + 1) % GRAPH_POINTS;
     if (history.len < GRAPH_POINTS) history.len++;
@@ -400,11 +406,27 @@ function renderData(body, data) {
 
     const used = data.total_vram - data.free_vram;
     if (used > peakVramUsed) peakVramUsed = used;
-    const aimdoPct = (data.aimdo_usage / data.total_vram * 100).toFixed(0);
-    const torchPct = (data.torch_active / data.total_vram * 100).toFixed(0);
-    const torchCache = Math.max(0, data.torch_reserved - data.torch_active);
+
+    // aimdo allocates through pytorch's caching allocator, so aimdo_usage
+    // and torch_reserved overlap. Derive non-overlapping segments from
+    // the driver-level total (used) as ground truth.
+    let aimdo, torchActive, torchCache, otherUsed;
+    if (data.aimdo_usage > 0) {
+        // aimdo active: torch stats are a subset of aimdo, not additive
+        aimdo = data.aimdo_usage;
+        torchActive = 0;
+        torchCache = 0;
+        otherUsed = Math.max(0, used - aimdo);
+    } else {
+        // no aimdo: torch stats are the full picture
+        aimdo = 0;
+        torchActive = data.torch_active;
+        torchCache = Math.max(0, data.torch_reserved - data.torch_active);
+        otherUsed = Math.max(0, used - data.torch_reserved);
+    }
+    const aimdoPct = (aimdo / data.total_vram * 100).toFixed(0);
+    const torchPct = (torchActive / data.total_vram * 100).toFixed(0);
     const torchCachePct = (torchCache / data.total_vram * 100).toFixed(0);
-    const otherUsed = Math.max(0, used - data.aimdo_usage - data.torch_reserved);
     const otherPct = (otherUsed / data.total_vram * 100).toFixed(0);
 
     const ramUsed = data.used_ram || 0;
@@ -452,15 +474,15 @@ function renderData(body, data) {
             <span>${formatBytes(used)} / ${formatBytes(data.total_vram)}</span>
         </div>
         <div style="background:${C.barBg};border-radius:3px;height:8px;overflow:hidden;display:flex;">
-            <div style="background:${C.vram};height:100%;width:${aimdoPct}%;" title="aimdo: ${formatBytes(data.aimdo_usage)}"></div>
-            <div style="background:${C.torch};height:100%;width:${torchPct}%;" title="torch: ${formatBytes(data.torch_active)}"></div>
+            <div style="background:${C.vram};height:100%;width:${aimdoPct}%;" title="models: ${formatBytes(aimdo)}"></div>
+            <div style="background:${C.torch};height:100%;width:${torchPct}%;" title="torch: ${formatBytes(torchActive)}"></div>
             <div style="background:${C.torchCache};height:100%;width:${torchCachePct}%;" title="cache: ${formatBytes(torchCache)}"></div>
             <div style="background:${C.other};height:100%;width:${otherPct}%;" title="other: ${formatBytes(otherUsed)}"></div>
         </div>
         <div style="display:flex;gap:8px;font-size:10px;color:${C.textDim};margin-top:2px;">
-            ${data.aimdo_active ? `<span><span style="color:${C.vram};">&#9632;</span> aimdo ${formatBytes(data.aimdo_usage)}</span>` : ""}
-            <span><span style="color:${C.torch};">&#9632;</span> torch ${formatBytes(data.torch_active)}</span>
-            <span><span style="color:${C.torchCache};">&#9632;</span> cache ${formatBytes(torchCache)}</span>
+            ${aimdo > 0 ? `<span><span style="color:${C.vram};">&#9632;</span> models ${formatBytes(aimdo)}</span>` : ""}
+            ${torchActive > 0 ? `<span><span style="color:${C.torch};">&#9632;</span> torch ${formatBytes(torchActive)}</span>` : ""}
+            ${torchCache > 0 ? `<span><span style="color:${C.torchCache};">&#9632;</span> cache ${formatBytes(torchCache)}</span>` : ""}
             <span><span style="color:${C.other};">&#9632;</span> other ${formatBytes(otherUsed)}</span>
         </div>
         <div style="display:flex;gap:10px;font-size:10px;color:${C.textDim};margin-top:2px;">

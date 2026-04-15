@@ -97,7 +97,8 @@ async def aimdo_vram_status(request):
 
         models.append(entry)
 
-    aimdo_usage = comfy_aimdo.control.get_total_vram_usage() if aimdo_active else 0
+    has_dynamic = any(m.get("dynamic") for m in models)
+    aimdo_usage = comfy_aimdo.control.get_total_vram_usage() if aimdo_active and has_dynamic else 0
 
     # driver-level free/total (matches nvitop)
     free_cuda, total_vram = torch.cuda.mem_get_info(device)
