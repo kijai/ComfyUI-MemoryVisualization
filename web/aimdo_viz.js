@@ -1896,6 +1896,34 @@ function createPanel() {
         applyOffsets();
     }
     attachCanvasObserver();
+
+    // --- Should fix the problem when toggling properties panel causing the docked bar to disappear ---
+    let survivalObserver = null;
+    function startSurvivalObserver() {
+        if (survivalObserver) return;
+        survivalObserver = new MutationObserver(() => {
+            if (!isDocked) return;
+            // Panel is docked but no longer in DOM = actionbar was rebuilt
+            if (!document.getElementById("aimdo-viz-panel")) {
+                const ac = getActionbarContainer();
+                if (!ac) return;
+                // Re-attach: add the docked class, set flex order, append
+                panel.classList.add("aimdo-docked");
+                panel.style.order = dockSide === "left" ? "-1" : "1";
+                ac.appendChild(panel);
+                // Re-apply the section width and ensure body is hidden
+                applyDockSectionWidth();
+                if (!dockExpanded) {
+                    body.style.display = "none";
+                    miniBar.style.display = "block";
+                }
+            }
+        });
+        // Observe body for subtree changes (actionbar creation/destruction)
+        survivalObserver.observe(document.body, { childList: true, subtree: true });
+    }
+    startSurvivalObserver();
+
     body._titleSpan = titleSpan;
     body._miniBar = miniBar;
     body._panel = panel;
