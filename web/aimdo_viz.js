@@ -589,13 +589,14 @@ function createPanel() {
         const r = panel.getBoundingClientRect();
         const ac = getActionbarContainer();
         const acr = ac ? ac.getBoundingClientRect() : null;
-        const overlayW = 420;
+        const overlayW = 420 * panelScale;
         const anchor = dockSide === "right"
             ? (acr ? acr.right - overlayW : r.right - overlayW)
             : (acr ? acr.left : r.left);
         const left = Math.max(4, Math.min(window.innerWidth - overlayW - 4, anchor));
-        body.style.top = (r.bottom + 12) + "px";
-        body.style.left = left + "px";
+        // body is position:fixed inside the zoomed panel; its top/left are pre-zoom
+        body.style.top = ((r.bottom + 12) / panelScale) + "px";
+        body.style.left = (left / panelScale) + "px";
     }
 
     function getActionbarContainer() {
@@ -684,6 +685,15 @@ function createPanel() {
         body.style.left = "";
         if (savedPanelCss != null) panel.style.cssText = savedPanelCss;
         savedPanelCss = null;
+        // scale may have changed while docked; convert the restored pre-zoom sizes
+        const restoredScale = parseFloat(panel.style.zoom) || 1;
+        if (Math.abs(restoredScale - panelScale) > 1e-6) {
+            const w = parseFloat(panel.style.width);
+            const h = parseFloat(panel.style.height);
+            if (w) panel.style.width = (w * restoredScale / panelScale) + "px";
+            if (h) panel.style.height = (h * restoredScale / panelScale) + "px";
+            panel.style.zoom = panelScale;
+        }
         document.body.appendChild(panel);
         isDocked = false;
         const restoreCollapsed = preDockCollapsed != null ? preDockCollapsed : false;
@@ -1376,6 +1386,14 @@ function createPanel() {
         }
     }
     function setScale(s) {
+        if (isDocked) {
+            panelScale = s;
+            panel._scale = s;
+            panel.style.zoom = s;
+            positionDockedBody();
+            saveState({ scale: s });
+            return;
+        }
         const r = panel.getBoundingClientRect();
         const w = r.width, h = r.height;
         const hadExplicitHeight = panel.style.height !== "";

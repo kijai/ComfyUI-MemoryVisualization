@@ -234,7 +234,6 @@
     box-shadow: none !important; background: transparent !important;
     flex-direction: row !important;
     align-items: center;
-    zoom: 1 !important;
     transform: none !important;
 }
 
