@@ -45,6 +45,8 @@ let _rebuildDriveMenu = null;  // assigned by createPanel; called from renderDat
 let showHwNames = true;
 let showTitle = true;
 let showExecBtn = false;  // optional play / cancel-running button in the header
+let showPopoutBtn = true;
+let showToggleBtn = true;
 let miniShowNumbers = true;
 let miniShowUnits = true;
 let miniShowType = true;
@@ -356,6 +358,8 @@ function createPanel() {
     if (typeof saved.showHwNames === "boolean") showHwNames = saved.showHwNames;
     if (typeof saved.showTitle === "boolean") showTitle = saved.showTitle;
     if (typeof saved.showExecBtn === "boolean") showExecBtn = saved.showExecBtn;
+    if (typeof saved.showPopoutBtn === "boolean") showPopoutBtn = saved.showPopoutBtn;
+    if (typeof saved.showToggleBtn === "boolean") showToggleBtn = saved.showToggleBtn;
     if (typeof saved.miniShowNumbers === "boolean") miniShowNumbers = saved.miniShowNumbers;
     if (typeof saved.miniShowUnits === "boolean") miniShowUnits = saved.miniShowUnits;
     if (typeof saved.miniShowType === "boolean") miniShowType = saved.miniShowType;
@@ -1059,6 +1063,8 @@ function createPanel() {
     });
 
     headerRight.appendChild(unloadBtn);
+    popoutBtn.style.display = showPopoutBtn ? "" : "none";
+    toggleBtn.style.display = showToggleBtn ? "" : "none";
     headerRight.appendChild(popoutBtn);
     headerRight.appendChild(toggleBtn);
     header.appendChild(headerRight);
@@ -1436,12 +1442,22 @@ function createPanel() {
         () => showExecBtn,
         v => { showExecBtn = v; execBtn.style.display = v ? "" : "none"; },
         "showExecBtn");
+    const showPopoutBtnItem = makeToggleItem("Pop out button",
+        () => showPopoutBtn,
+        v => { showPopoutBtn = v; popoutBtn.style.display = v ? "" : "none"; },
+        "showPopoutBtn");
+    const showToggleBtnItem = makeToggleItem("Expand button",
+        () => showToggleBtn,
+        v => { showToggleBtn = v; toggleBtn.style.display = v ? "" : "none"; },
+        "showToggleBtn");
     displaySubmenu.appendChild(colorBars.item);
     displaySubmenu.appendChild(colorStroke.item);
     displaySubmenu.appendChild(colorName.item);
     displaySubmenu.appendChild(showLeg.item);
     displaySubmenu.appendChild(showTitleItem.item);
     displaySubmenu.appendChild(showExecBtnItem.item);
+    displaySubmenu.appendChild(showPopoutBtnItem.item);
+    displaySubmenu.appendChild(showToggleBtnItem.item);
 
     // --- Mini view submenu
     const showRam = makeToggleItem("RAM",
@@ -1696,6 +1712,7 @@ function createPanel() {
         colorBars.render(); colorStroke.render(); colorName.render(); showLeg.render();
         showRam.render(); showVram.render(); showCpu.render(); showGpu.render(); showNames.render();
         showTitleItem.render(); showExecBtnItem.render();
+        showPopoutBtnItem.render(); showToggleBtnItem.render();
         showType.render(); showNumbers.render(); showUnits.render();
         showGpuTemp.render(); showGpuPower.render();
         renderDockItem();
