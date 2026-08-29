@@ -22,9 +22,17 @@ try:
 except ImportError:
     comfy_aimdo = None
 
+def _is_amd():
+    # ROCm/HIP torch builds still report device.type == "cuda", so the backend
+    # has to be identified through torch.version.hip.
+    return getattr(torch.version, "hip", None) is not None
+
 # NVML handle + power-cap cache. Cap and device name are static for a given
 # driver state, so we only query them once. Handle init is best-effort; failures stick.
-_nvml_state = {"handle": None, "tried": False, "power_limit": None, "gpu_name": None}
+_nvml_state = {"handle": None, "tried": False, "power_limit": None}
+
+# Vendor-agnostic; the device name never changes for the life of the process.
+_gpu_name_cache = {"name": None}
 
 def _resolve_nvml_handle(pynvml, device):
     # NVML enumerates physical GPUs and ignores CUDA_VISIBLE_DEVICES, so the torch
@@ -80,6 +88,107 @@ def _nvml_power_limit(device):
     except Exception as e:
         log.debug("aimdo-viz: nvmlDeviceGetPowerManagementLimit failed: %s", e)
         return None
+
+
+# --- AMD telemetry -----------------------------------------------------------
+# torch.cuda.utilization/temperature/power_draw go through amdsmi on a ROCm
+# build, and amdsmi has no Windows port, so on Windows every hardware metric
+# reads N/A. ADLX is the Windows-native equivalent, and its VRAM is device-wide
+# where HIP's mem_get_info is not.
+_adlx_state = {"tried": False, "ok": False, "helper": None, "perf": None,
+               "gpu": None, "power_limit": None}
+
+def _match_adlx_gpu(gpus, device):
+    # ADLX ignores HIP_VISIBLE_DEVICES, so the torch index can name the wrong
+    # card. UniqueId packs the PCI location as (bus << 8) | (dev << 3) | func.
+    try:
+        idx = device.index if device.index is not None else torch.cuda.current_device()
+        bus = torch.cuda.get_device_properties(idx).pci_bus_id
+        for g in gpus:
+            if (g.UniqueId() >> 8) & 0xFF == bus:
+                return g
+    except Exception as e:
+        log.debug("aimdo-viz: adlx pci match failed: %s", e)
+    return max(gpus, key=lambda g: g.TotalVRAM())
+
+def _adlx_init(device):
+    if _adlx_state["tried"]:
+        return _adlx_state["ok"]
+    _adlx_state["tried"] = True
+    try:
+        import ADLXPybind as ADLX
+        helper = ADLX.ADLXHelper()
+        if helper.Initialize() != ADLX.ADLX_RESULT.ADLX_OK:
+            return False
+        system = helper.GetSystemServices()
+        perf = system.GetPerformanceMonitoringServices() if system is not None else None
+        gpus = list(system.GetGPUs()) if system is not None else []
+        if perf is None or not gpus:
+            return False
+        # holding the helper keeps ADLX initialised
+        _adlx_state.update(ok=True, helper=helper, perf=perf,
+                           gpu=_match_adlx_gpu(gpus, device))
+    except ImportError:
+        # only actionable on Windows; elsewhere torch/amdsmi already covers it
+        if platform.system() == "Windows":
+            log.warning("aimdo-viz: GPU usage/temperature/power need ADLX on "
+                        "Windows ROCm, install it with: pip install ADLXPybind")
+        else:
+            log.debug("aimdo-viz: ADLXPybind not installed")
+    except Exception as e:
+        log.debug("aimdo-viz: adlx init failed: %s", e)
+    return _adlx_state["ok"]
+
+def _adlx_metric(support, metrics, name, scale=1):
+    # unsupported metrics still return a value, just a garbage one
+    try:
+        if not getattr(support, "IsSupported" + name)():
+            return None
+        return getattr(metrics, name)() * scale
+    except Exception as e:
+        log.debug("aimdo-viz: adlx %s failed: %s", name, e)
+        return None
+
+def _adlx_snapshot(device):
+    """Device-wide AMD metrics, or None when ADLX is unavailable. Everything
+    comes off one support/metrics pair, so it's one batched read per poll."""
+    if not _adlx_init(device):
+        return None
+    st = _adlx_state
+    try:
+        support = st["perf"].GetSupportedGPUMetrics(st["gpu"])
+        metrics = st["perf"].GetCurrentGPUMetrics(st["gpu"])
+
+        mem = None
+        used_mb = _adlx_metric(support, metrics, "GPUVRAM")
+        if used_mb is not None:
+            total = int(st["gpu"].TotalVRAM()) * 1024 * 1024
+            mem = (max(0, total - int(used_mb) * 1024 * 1024), total)
+
+        # board power covers VRAM and VRM losses; GPUPower is chip-only
+        power = _adlx_metric(support, metrics, "GPUTotalBoardPower", 1000)
+        rng = "GetGPUTotalBoardPowerRange"
+        if power is None:
+            power = _adlx_metric(support, metrics, "GPUPower", 1000)
+            rng = "GetGPUPowerRange"
+        if power is not None and st["power_limit"] is None:
+            # range max is the cap the driver will let the board pull
+            st["power_limit"] = int(getattr(support, rng)()[1]) * 1000
+
+        util = _adlx_metric(support, metrics, "GPUUsage")
+        temp = _adlx_metric(support, metrics, "GPUTemperature")
+        return {
+            "mem": mem,
+            "util": None if util is None else round(util),
+            "temp": None if temp is None else round(temp),
+            "power": None if power is None else round(power),
+            "power_limit": st["power_limit"],
+            "name": st["gpu"].Name(),
+        }
+    except Exception as e:
+        log.debug("aimdo-viz: adlx poll failed: %s", e)
+        return None
+
 
 def _get_lock():
     # Stored on comfy.model_management so the same lock survives hot reloads.
@@ -432,43 +541,54 @@ async def aimdo_vram_status(request):
     has_dynamic = any(m.get("dynamic") for m in models)
     aimdo_usage = comfy_aimdo.control.get_total_vram_usage() if aimdo_active and has_dynamic else 0
 
-    # prefer NVML (device-wide on every driver model) and fall back to cudaMemGetInfo
-    # — the latter under-reports on Windows WDDM by hiding other processes' VRAM.
-    _mem = _nvml_mem_info(device)
+    # Vendor telemetry: NVML on NVIDIA, ADLX on AMD. Both are device-wide, unlike
+    # cudaMemGetInfo, which under-reports on Windows WDDM by hiding other
+    # processes' VRAM. Without ADLX, AMD falls through to the torch calls below,
+    # which work wherever amdsmi does.
+    amd = _adlx_snapshot(device) if _is_amd() else None
+
+    _mem = amd["mem"] if amd else _nvml_mem_info(device)
     if _mem is not None:
         free_cuda, total_vram = _mem
     else:
         free_cuda, total_vram = torch.cuda.mem_get_info(device)
 
-    try:
-        gpu_util = torch.cuda.utilization(device)
-    except Exception:
-        gpu_util = None
+    if amd:
+        gpu_util, gpu_temp = amd["util"], amd["temp"]
+        gpu_power, gpu_power_limit = amd["power"], amd["power_limit"]
+    else:
+        try:
+            gpu_util = torch.cuda.utilization(device)
+        except Exception:
+            gpu_util = None
 
-    try:
-        gpu_temp = torch.cuda.temperature(device)
-    except Exception:
-        gpu_temp = None
+        try:
+            gpu_temp = torch.cuda.temperature(device)
+        except Exception:
+            gpu_temp = None
 
-    try:
-        gpu_power = torch.cuda.power_draw(device)  # mW
-    except Exception:
-        gpu_power = None
-    gpu_power_limit = _nvml_power_limit(device)  # mW
+        try:
+            gpu_power = torch.cuda.power_draw(device)  # mW
+        except Exception:
+            gpu_power = None
+        gpu_power_limit = _nvml_power_limit(device)  # mW
 
-    gpu_name = _nvml_state["gpu_name"]
+    gpu_name = _gpu_name_cache["name"]
     if gpu_name is None:
-        h = _nvml_handle(device)
-        if h is not None:
-            try:
-                import pynvml
-                name = pynvml.nvmlDeviceGetName(h)
-                gpu_name = _nvml_state["gpu_name"] = name.decode() if isinstance(name, bytes) else name
-            except Exception as e:
-                log.debug("aimdo-viz: nvmlDeviceGetName failed: %s", e)
+        if amd:
+            gpu_name = _gpu_name_cache["name"] = amd["name"]
+        else:
+            h = _nvml_handle(device)
+            if h is not None:
+                try:
+                    import pynvml
+                    name = pynvml.nvmlDeviceGetName(h)
+                    gpu_name = _gpu_name_cache["name"] = name.decode() if isinstance(name, bytes) else name
+                except Exception as e:
+                    log.debug("aimdo-viz: nvmlDeviceGetName failed: %s", e)
         if gpu_name is None:
             try:
-                gpu_name = _nvml_state["gpu_name"] = torch.cuda.get_device_name(device)
+                gpu_name = _gpu_name_cache["name"] = torch.cuda.get_device_name(device)
             except Exception:
                 pass
 

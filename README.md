@@ -13,3 +13,15 @@ Clone into your `custom_nodes` folder:
 ```
 git clone https://github.com/kijai/ComfyUI-MemoryVisualization ComfyUI/custom_nodes/ComfyUI-MemoryVisualization
 ```
+
+## GPU telemetry
+
+Utilization, temperature and power come from the vendor telemetry library: NVML on NVIDIA and, on Linux, `amdsmi` through torch - both already present in a working ComfyUI install.
+
+`amdsmi` has no Windows build, so AMD on Windows needs ADLX instead:
+
+```
+pip install ADLXPybind
+```
+
+Without it those bars show `N/A`.
