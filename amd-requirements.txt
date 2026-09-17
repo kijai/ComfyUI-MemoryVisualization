@@ -1,0 +1,4 @@
+# ADLX bindings, for GPU util/power/temp and device-wide VRAM on Windows.
+# No-op elsewhere: amdsmi already covers those through torch on Linux, and the
+# wheels are Windows-only.
+amd-adlx; platform_system == "Windows" and python_version >= "3.10" and python_version < "3.14"

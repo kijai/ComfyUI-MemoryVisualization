@@ -1,0 +1,1 @@
+nvidia-ml-py # for GPU util/power/temp, and device-wide VRAM on Windows

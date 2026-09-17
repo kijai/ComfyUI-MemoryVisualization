@@ -214,7 +214,12 @@ function formatClock(ms) {
 }
 
 function shortenGpuName(name) {
-    return name.replace(/^NVIDIA\s+/i, "").replace(/^GeForce\s+/i, "").replace(/\s+Laptop GPU$/i, "");
+    return name
+        .replace(/^NVIDIA\s+/i, "")
+        .replace(/^GeForce\s+/i, "")
+        .replace(/^AMD\s+/i, "")
+        .replace(/^Radeon\s+(?=RX\s)/i, "")
+        .replace(/\s+Laptop GPU$/i, "");
 }
 
 function shortenCpuName(name) {
