@@ -639,7 +639,7 @@ async def aimdo_vram_status(request):
                 log.debug("aimdo-viz: disk_usage(%s) failed: %s", p["mountpoint"], e)
             disks_list.append(entry)
 
-    total_pinned = sum(m.get("pinned_ram", 0) for m in models)
+    total_pinned = comfy.model_management.TOTAL_PINNED_MEMORY
     total_loaded_ram = sum(m.get("loaded_ram", 0) for m in models)
 
     return web.json_response({
