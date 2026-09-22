@@ -152,8 +152,8 @@
     --aimdo-loadedRam:  var(--color-cobalt-800);
     --aimdo-unloaded:   var(--color-ash-800);
     --aimdo-torchCache: var(--color-jade-600);
-    --aimdo-python:     var(--color-magenta-700);
-    --aimdo-other:      var(--color-neutral-550);
+    --aimdo-python:     var(--color-magenta-700, #9b59b6);
+    --aimdo-other:      var(--color-neutral-550, #505050);
     --aimdo-gpuUtil:    var(--color-gold-500);
     --aimdo-gpuUtilHi:  var(--color-coral-500);
 
