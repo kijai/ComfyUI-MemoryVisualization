@@ -2906,12 +2906,14 @@ app.registerExtension({
         });
 
         let pollTimer = null;
+        let pollErrLogged = false;
         async function poll() {
             // Skip fetch when the tab is hidden or the panel is detached
             if (document.hidden || !body.isConnected) {
                 pollTimer = setTimeout(poll, pollInterval);
                 return;
             }
+            let data = null;
             try {
                 const params = [];
                 if (showDiskInMini) params.push("disk=1");
@@ -2927,10 +2929,15 @@ app.registerExtension({
                 }
                 const url = "/aimdo/vram" + (params.length ? "?" + params.join("&") : "");
                 const resp = await api.fetchApi(url);
-                const data = await resp.json();
+                data = await resp.json();
                 renderData(body, data);
+                pollErrLogged = false;
             } catch (e) {
-                body.innerHTML = `<div style="color:#aa5555;">Error fetching data</div>`;
+                if (!pollErrLogged) {
+                    pollErrLogged = true;
+                    console.error("aimdo-viz: poll failed", e);
+                }
+                body.innerHTML = `<div style="color:#aa5555;">${data ? "Render error, see console" : "Error fetching data"}</div>`;
                 refs = null;
             }
             pollTimer = setTimeout(poll, pollInterval);
