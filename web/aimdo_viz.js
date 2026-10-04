@@ -1040,32 +1040,24 @@ function createPanel() {
         toggleBtn.textContent = "+";
         miniBar.style.display = "block";
     }
+
+    // open/close the docked overlay body in one place so the toggle button and
+    // click-outside-to-close stay in sync.
+    function setDockExpanded(on) {
+        dockExpanded = on;
+        panel.classList.toggle("aimdo-docked-expanded", on);
+        if (on) positionDockedBody();
+        toggleBtn.textContent = on ? "\u2212" : "+";
+    }
+
     toggleBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         // docked: toggle the overlay body below the docked mini-bar; stays docked
-        if (isDocked) {
-            dockExpanded = !dockExpanded;
-            if (dockExpanded) {
-                panel.classList.add("aimdo-docked-expanded");
-                positionDockedBody();
-                toggleBtn.textContent = "\u2212";
-            } else {
-                panel.classList.remove("aimdo-docked-expanded");
-                toggleBtn.textContent = "+";
-            }
-            return;
-        }
+        if (isDocked) { setDockExpanded(!dockExpanded); return; }
         collapsed = !collapsed;
-        body.style.display = collapsed ? "none" : "flex";
-        miniBar.style.display = collapsed ? "block" : "none";
-        toggleBtn.textContent = collapsed ? "+" : "\u2212";
-        // each mode persists its own height so toggling restores the right size.
-        const s = loadState();
-        const h = collapsed ? s.heightCollapsed : s.height;
-        panel.style.height = h != null ? (Math.min(h, window.innerHeight) / panelScale + "px") : "";
-        applyConstraints();
-        saveState({ collapsed });
+        // ... rest of the handler unchanged
     });
+
 
     headerRight.appendChild(unloadBtn);
     popoutBtn.style.display = showPopoutBtn ? "" : "none";
@@ -1726,6 +1718,19 @@ function createPanel() {
     document.body.appendChild(rootMenu);
     for (const m of allSubmenus) document.body.appendChild(m);
 
+    // clicking anywhere outside the docked panel collapses the expanded overlay —
+    // no need to hit the small toggle button precisely. The menus live on <body>
+    // but are part of this panel's UI, so clicks in them don't count as "outside".
+    document.addEventListener("click", (e) => {
+        if (!isDocked || !dockExpanded) return;
+        if (panel.contains(e.target)) return;
+        if (e.target instanceof Node &&
+            (rootMenu.contains(e.target) || unloadMenu.contains(e.target) ||
+             allSubmenus.some(m => m.contains(e.target)))) return;
+        setDockExpanded(false);
+    }, true);
+
+    
     panel.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         e.stopPropagation();
