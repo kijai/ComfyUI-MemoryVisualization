@@ -478,6 +478,9 @@ async def aimdo_vram_status(request):
         model_obj = patcher.model
         if model_obj is None:
             continue
+        # writable KV caches get their VBAR closed by the sampling thread, unsafe to read from here
+        if getattr(model_obj, "comfy_writable", False):
+            continue
 
         name = model_obj.__class__.__name__
         is_dynamic = patcher.is_dynamic()
@@ -703,7 +706,7 @@ async def aimdo_reset_watermark(request):
         if idx >= len(models):
             return web.json_response({"error": "model no longer at index"}, status=409)
         patcher = models[idx].model
-        if patcher is not None and hasattr(patcher, '_vbar_get'):
+        if patcher is not None and hasattr(patcher, '_vbar_get') and not getattr(patcher.model, "comfy_writable", False):
             vbar = patcher._vbar_get()
             if vbar is not None:
                 vbar.prioritize()
