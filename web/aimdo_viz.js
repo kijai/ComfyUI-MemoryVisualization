@@ -2688,6 +2688,7 @@ function renderData(body, data) {
     }
 
     cr.infoPeak.textContent = "peak: " + formatBytes(peakVramUsed);
+    cr.infoCache.style.display = data.aimdo_active ? "none" : "";
     cr.infoCache.textContent = "cache: " + formatBytes(data.torch_reserved - data.torch_active);
     if (data.gpu_util != null) {
         cr.infoGpu.style.display = "";

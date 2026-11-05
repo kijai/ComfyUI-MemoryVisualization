@@ -602,10 +602,13 @@ async def aimdo_vram_status(request):
     except Exception:
         cpu_util = None
 
-    # pytorch internal stats
-    stats = torch.cuda.memory_stats(device)
-    torch_active = stats.get('active_bytes.all.current', 0)
-    torch_reserved = stats.get('reserved_bytes.all.current', 0)
+    # aimdo calls back into Python (KV cache pageout, native logging) with torch's allocator
+    # lock held, and memory_stats takes that lock without releasing the GIL -> deadlock
+    torch_active = torch_reserved = 0
+    if not aimdo_active:
+        stats = torch.cuda.memory_stats(device)
+        torch_active = stats.get('active_bytes.all.current', 0)
+        torch_reserved = stats.get('reserved_bytes.all.current', 0)
 
     ram = psutil.virtual_memory()
     proc = psutil.Process()
