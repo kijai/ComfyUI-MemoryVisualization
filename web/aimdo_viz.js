@@ -114,10 +114,19 @@ if (!customElements.get("aimdo-viz-panel")) {
     });
 }
 
-function parseRgbTriplet(s) {
-    const parts = s.split(",").map(x => parseInt(x.trim(), 10));
-    if (parts.length === 3 && parts.every(Number.isFinite)) return parts;
-    return null;
+// fillStyle normalizes sRGB colors to #rrggbb (rgba() when translucent); invalid input leaves the gray in place.
+const colorProbe = document.createElement("canvas").getContext("2d");
+function colorToRgb(color) {
+    colorProbe.fillStyle = "#808080";
+    colorProbe.fillStyle = color;
+    const s = colorProbe.fillStyle;
+    if (s[0] === "#") return [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
+    if (s.startsWith("rgba(")) return s.slice(5).split(",").slice(0, 3).map(Number);
+    return [128, 128, 128];
+}
+function colorToRgba(color, alpha) {
+    const [r, g, b] = colorToRgb(color);
+    return `rgba(${r},${g},${b},${alpha})`;
 }
 
 // Set the theme on <html> so the matching CSS block takes effect, then
@@ -139,13 +148,11 @@ function applyPalette(name) {
         if (v) MODEL_TYPE_COLOR[k] = v;
     }
     for (const k of RGB_KEYS) {
-        const v = cs.getPropertyValue(`--aimdo-${k}`).trim();
-        const rgb = v && parseRgbTriplet(v);
-        if (rgb) C[k] = rgb;
+        C[k] = colorToRgb(`rgb(${cs.getPropertyValue(`--aimdo-${k}`).trim()})`);
     }
 }
 
-// The "comfy" theme maps --aimdo-* to ComfyUI's --comfy-*/--color-* tokens via
+// The "comfy" theme maps the chrome --aimdo-* colors to ComfyUI's --comfy-* tokens via
 // var(). Those tokens themselves change when ComfyUI toggles its .dark-theme
 // class on <html> or <body>. DOM elements track that automatically through
 // the cascade, but the cached `C` palette used by the canvas does not — so we
@@ -157,14 +164,6 @@ function watchHostThemeFlip() {
     if (document.body) new MutationObserver(reapply).observe(document.body, opts);
 }
 
-function hexToRgb(hex) {
-    const h = hex.replace("#", "");
-    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
-}
-function hexToRgba(hex, alpha) {
-    const [r, g, b] = hexToRgb(hex);
-    return `rgba(${r},${g},${b},${alpha})`;
-}
 // blend [r,g,b] toward white. Used so fade-in stays in the type's hue family.
 function lightenRgb([r, g, b], amount) {
     return [
@@ -174,7 +173,7 @@ function lightenRgb([r, g, b], amount) {
     ];
 }
 
-initGraph({ C, hexToRgb, hexToRgba, saveState });
+initGraph({ C, colorToRgb, colorToRgba, saveState });
 
 
 function escHtml(s) {
@@ -289,7 +288,7 @@ function diffResidency(key, residency) {
 // uses a lightened type color so the hue stays in the model's family.
 function drawPageGrid(ctx, cssW, residency, changeAge, panelScale, vramColor) {
     const vramHex = vramColor || C.vram;
-    const vramRgb = hexToRgb(vramHex);
+    const vramRgb = colorToRgb(vramHex);
     const fadeInFromRgb = vramColor ? lightenRgb(vramRgb, 0.55) : [255, 220, 0];
     const cellSize = 6;
     const gap = 1;
@@ -2206,7 +2205,7 @@ function renderModelRow(r, m, data) {
     const typeColor = MODEL_TYPE_COLOR[m.type];
     const vramColor = (colorModelBars && typeColor) || C.vram;
     row.nameSpan.style.color = (colorModelName && typeColor) || C.text;
-    row.el.style.borderColor = (colorModelStroke && typeColor) ? hexToRgba(typeColor, 0.4) : "transparent";
+    row.el.style.borderColor = (colorModelStroke && typeColor) ? colorToRgba(typeColor, 0.4) : "transparent";
     if (!row.collapsed) row.legend.style.display = showLegends ? "flex" : "none";
     row.sizeSpan.textContent = formatBytes(m.total_size);
 

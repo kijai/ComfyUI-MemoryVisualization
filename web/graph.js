@@ -5,14 +5,14 @@
 // graph stays one-way (main → graph).
 
 let C = null;                    // theme palette object (live binding; main mutates on theme switch)
-let hexToRgb = null;
-let hexToRgba = null;
+let colorToRgb = null;
+let colorToRgba = null;
 let saveState = null;
 
 export function initGraph(deps) {
     C = deps.C;
-    hexToRgb = deps.hexToRgb;
-    hexToRgba = deps.hexToRgba;
+    colorToRgb = deps.colorToRgb;
+    colorToRgba = deps.colorToRgba;
     saveState = deps.saveState;
 }
 
@@ -271,7 +271,7 @@ export function drawGraph(ctx, w, h) {
         }
         ctx.lineTo(xFor(visible - 1), h);
         ctx.closePath();
-        ctx.fillStyle = hexToRgba(vramHex, 0.35);
+        ctx.fillStyle = colorToRgba(vramHex, 0.35);
         ctx.fill();
 
         ctx.beginPath();
@@ -283,7 +283,7 @@ export function drawGraph(ctx, w, h) {
             ctx.lineTo(xFor(i), yFor(at(history.aimdo_usage, i)));
         }
         ctx.closePath();
-        ctx.fillStyle = hexToRgba(C.torch, 0.4);
+        ctx.fillStyle = colorToRgba(C.torch, 0.4);
         ctx.fill();
 
         const stackTop = (i) => at(history.aimdo_usage, i) + at(history.torch_active, i);
@@ -297,13 +297,13 @@ export function drawGraph(ctx, w, h) {
             ctx.lineTo(xFor(i), yFor(stackTop(i)));
         }
         ctx.closePath();
-        ctx.fillStyle = hexToRgba(C.other, 0.4);
+        ctx.fillStyle = colorToRgba(C.other, 0.4);
         ctx.fill();
     } else if (style === "bars") {
         const groupSize = 3;
         const barStep = stepX * groupSize;
         const barW = Math.max(4, barStep - 4);
-        ctx.fillStyle = hexToRgba(vramHex, 0.55);
+        ctx.fillStyle = colorToRgba(vramHex, 0.55);
         const newestAbs = history.pushCount - 1 - history.viewOffset;
         const oldestAbs = newestAbs - visible + 1;
         const firstGroupAbs = Math.floor(oldestAbs / groupSize) * groupSize;
@@ -383,7 +383,7 @@ export function drawGraph(ctx, w, h) {
         const dotR = 1;
         const dotStep = 8;
         const colStep = 2;
-        const [r, g, b] = hexToRgb(vramHex);
+        const [r, g, b] = colorToRgb(vramHex);
         for (let y = 0; y < h; y += dotStep) {
             const f = 1 - y / h;
             ctx.fillStyle = `rgba(${r},${g},${b},${(0.15 + 0.65 * f).toFixed(3)})`;

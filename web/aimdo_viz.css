@@ -126,36 +126,37 @@
     --aimdo-type-style_model: #f472b6; --aimdo-type-gligen: #a855f7; --aimdo-type-upscale_model: #3b82f6;
 }
 
-/* Inherits ComfyUI's design tokens via var() so the panel adopts whatever
-   palette the host is in (light/dark mode is read live through the cascade).
-   --aimdo-type-* and --aimdo-fadeOut* are intentionally omitted — the
-   LiteGraph slot hues and fade RGB triplets from :root carry through. */
+/* Chrome colors inherit ComfyUI's --comfy-* tokens via var() so the panel
+   follows the host palette (light/dark mode is read live through the cascade).
+   --aimdo-type-* is intentionally omitted — the LiteGraph slot hues from :root
+   carry through. */
 [data-aimdo-theme="comfy"] {
-    --aimdo-bg:         var(--comfy-menu-bg);
-    --aimdo-rowBg:      var(--comfy-menu-secondary-bg);
-    --aimdo-headerBg:   var(--comfy-menu-bg);
-    --aimdo-border:     var(--border-color);
-    --aimdo-btn:        var(--comfy-input-bg);
-    --aimdo-btnText:    var(--input-text);
-    --aimdo-text:       var(--input-text);
-    --aimdo-textDim:    var(--descrip-text);
-    --aimdo-running:    var(--input-text);
-    --aimdo-graphBg:    var(--comfy-menu-secondary-bg);
-    --aimdo-gridLine:   var(--border-color);
-    --aimdo-barBg:      var(--comfy-input-bg);
-    --aimdo-totalLine:  var(--fg-color);
-    --aimdo-capLine:    var(--border-color);
+    --aimdo-bg:         var(--comfy-menu-bg, #181818);
+    --aimdo-rowBg:      var(--comfy-menu-secondary-bg, #1f1f1f);
+    --aimdo-headerBg:   var(--comfy-menu-bg, #202020);
+    --aimdo-border:     var(--border-color, #2a2a2a);
+    --aimdo-btn:        var(--comfy-input-bg, #2a2a2a);
+    --aimdo-btnText:    var(--input-text, #888);
+    --aimdo-text:       var(--input-text, #b0b0b0);
+    --aimdo-textDim:    var(--descrip-text, #707070);
+    --aimdo-running:    var(--input-text, #b0b0b0);
+    --aimdo-graphBg:    var(--comfy-menu-secondary-bg, #0e0e0e);
+    --aimdo-gridLine:   var(--border-color, #1e1e1e);
+    --aimdo-barBg:      var(--comfy-input-bg, #222);
+    --aimdo-totalLine:  var(--fg-color, #d0d0d0);
+    --aimdo-capLine:    var(--border-color, #555);
 
-    --aimdo-vram:       var(--color-gold-500);
-    --aimdo-torch:      var(--color-jade-600);
-    --aimdo-pinned:     var(--color-azure-400);
-    --aimdo-loadedRam:  var(--color-cobalt-800);
-    --aimdo-unloaded:   var(--color-ash-800);
-    --aimdo-torchCache: var(--color-jade-600);
-    --aimdo-python:     var(--color-magenta-700, #9b59b6);
-    --aimdo-other:      var(--color-neutral-550, #505050);
-    --aimdo-gpuUtil:    var(--color-gold-500);
-    --aimdo-gpuUtilHi:  var(--color-coral-500);
+    /* Frontend palette values, hardcoded: its build drops --color-* tokens the frontend doesn't use itself. */
+    --aimdo-vram:       #fdab34;
+    --aimdo-torch:      #00cd72;
+    --aimdo-pinned:     #31b9f4;
+    --aimdo-loadedRam:  #185a8b;
+    --aimdo-unloaded:   #444444;
+    --aimdo-torchCache: #00cd72;
+    --aimdo-python:     #9b59b6;
+    --aimdo-other:      #505050;
+    --aimdo-gpuUtil:    #fdab34;
+    --aimdo-gpuUtilHi:  #f75951;
 
     /* Neutral fade endpoints chosen to read OK against both light and dark
        Comfy backgrounds — the dark-tuned :root defaults would streak black
