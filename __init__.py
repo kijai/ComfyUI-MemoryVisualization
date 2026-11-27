@@ -226,7 +226,7 @@ def _get_cpu_name():
         log.debug("aimdo-viz: cpu name lookup failed: %s", e)
     return _cpu_name_cache["name"]
 
-# Fixed drives + volume labels are static for the session — enumerate once and cache.
+# Fixed drives + volume labels are static for the session 鈥?enumerate once and cache.
 # Sleepy/external drives could make GetVolumeInformationW block, so do it lazily off
 # the polling path (first time a client asks for the list).
 _disks_cache = {"tried": False, "list": []}
@@ -319,7 +319,7 @@ def _build_win_pagefile_query():
     return query
 
 def _pagefile_usage():
-    """(total_bytes, used_bytes) of system pagefiles — true on-disk usage."""
+    """(total_bytes, used_bytes) of system pagefiles 鈥?true on-disk usage."""
     if platform.system() == "Windows":
         st = _pagefile_state
         if not st["tried"]:
@@ -340,7 +340,7 @@ def _pagefile_usage():
         return 0, 0
 
 
-# Hard page faults — faults that hit disk, i.e. memory paged back in. A rising
+# Hard page faults 鈥?faults that hit disk, i.e. memory paged back in. A rising
 # rate is the thrashing signal. Windows reads SYSTEM_PERFORMANCE_INFORMATION;
 # Linux reads /proc/vmstat pgmajfault. Returns a monotonic count; the client
 # differentiates it into faults/sec.
@@ -561,20 +561,43 @@ async def aimdo_vram_status(request):
         gpu_util, gpu_temp = amd["util"], amd["temp"]
         gpu_power, gpu_power_limit = amd["power"], amd["power_limit"]
     else:
-        try:
-            gpu_util = torch.cuda.utilization(device)
-        except Exception:
-            gpu_util = None
-
-        try:
-            gpu_temp = torch.cuda.temperature(device)
-        except Exception:
-            gpu_temp = None
-
-        try:
-            gpu_power = torch.cuda.power_draw(device)  # mW
-        except Exception:
-            gpu_power = None
+        # Per the README, utilization / temperature / power come from the
+        # vendor telemetry library (NVML on NVIDIA), just like VRAM and the
+        # power cap below. torch.cuda.utilization/temperature/power_draw are
+        # not reliable across PyTorch builds and drivers and leave these
+        # fields as N/A. Read from NVML first, then fall back to torch so
+        # nothing regresses when pynvml is unavailable.
+        h = _nvml_handle(device)
+        gpu_util = gpu_temp = gpu_power = None
+        if h is not None:
+            import pynvml
+            try:
+                gpu_util = pynvml.nvmlDeviceGetUtilizationRates(h).gpu
+            except Exception as e:
+                log.debug("aimdo-viz: nvml util failed: %s", e)
+            try:
+                gpu_temp = pynvml.nvmlDeviceGetTemperature(h, pynvml.NVML_TEMPERATURE_GPU)
+            except Exception as e:
+                log.debug("aimdo-viz: nvml temp failed: %s", e)
+            try:
+                gpu_power = pynvml.nvmlDeviceGetPowerUsage(h)  # mW
+            except Exception as e:
+                log.debug("aimdo-viz: nvml power failed: %s", e)
+        if gpu_util is None:
+            try:
+                gpu_util = torch.cuda.utilization(device)
+            except Exception:
+                pass
+        if gpu_temp is None:
+            try:
+                gpu_temp = torch.cuda.temperature(device)
+            except Exception:
+                pass
+        if gpu_power is None:
+            try:
+                gpu_power = torch.cuda.power_draw(device)  # mW
+            except Exception:
+                pass
         gpu_power_limit = _nvml_power_limit(device)  # mW
 
     gpu_name = _gpu_name_cache["name"]
